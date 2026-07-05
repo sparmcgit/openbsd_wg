@@ -1,0 +1,102 @@
+#!/bin/bash
+# Set up a point-to-point WireGuard tunnel between two OpenBSD 7.9 servers,
+# one wg0 interface on each end, persisted via /etc/hostname.wg0.
+#
+# Usage:
+#   openbsd_wg [user@]<server1> [user@]<server2>
+
+set -euo pipefail
+
+WG_IF=wg0
+WG_PORT=51820
+WG_PREFIX=24
+WG_ADDR1=192.168.5.1
+WG_ADDR2=192.168.5.2
+
+usage() {
+	cat <<-EOF
+	usage: openbsd_wg [user@]<server1> [user@]<server2>
+
+	Sets up a point-to-point WireGuard tunnel between two OpenBSD 7.9
+	servers: $WG_IF on server1 gets $WG_ADDR1/$WG_PREFIX, $WG_IF on server2
+	gets $WG_ADDR2/$WG_PREFIX, peered to each other over UDP port $WG_PORT.
+	Requires root ssh access to both servers (or pass user@host).
+	EOF
+}
+
+[ "$#" -eq 2 ] || { usage; exit 1; }
+
+SERVER1="$1"
+SERVER2="$2"
+ENDPOINT1="${SERVER1#*@}"
+ENDPOINT2="${SERVER2#*@}"
+
+# Run a fixed, already-literal command on a remote host under /bin/bash --
+# root's default shell on OpenBSD is ksh.
+remote() {
+	local host="$1" cmd="$2"
+	ssh "$host" "/bin/bash -c '$cmd'"
+}
+
+# Install wireguard-tools if missing (needed for wg genkey/pubkey; the wg0
+# interface itself is native OpenBSD wg(4), no userland driver needed),
+# generate this host's private key once, and print its public key.
+ensure_key_and_get_pubkey() {
+	local host="$1"
+	ssh "$host" "/bin/bash -s" <<-EOF
+	set -e
+	command -v wg >/dev/null 2>&1 || pkg_add -I wireguard-tools 1>&2
+	mkdir -p -m 700 /etc/wireguard
+	if [ ! -f /etc/wireguard/$WG_IF.key ]; then
+		umask 077
+		wg genkey > /etc/wireguard/$WG_IF.key
+	fi
+	wg pubkey < /etc/wireguard/$WG_IF.key
+	EOF
+}
+
+# Write /etc/hostname.$WG_IF on a host, backing up any existing one first.
+write_hostname_if() {
+	local host="$1" addr="$2" peer_pubkey="$3" peer_endpoint="$4" peer_aip="$5"
+
+	ssh "$host" "/bin/bash -s" <<-EOF
+	set -e
+	if [ -f /etc/hostname.$WG_IF ]; then
+		cp -p /etc/hostname.$WG_IF /etc/hostname.$WG_IF.bak.\$(date +%Y%m%d%H%M%S)
+	fi
+	EOF
+
+	local content
+	content=$(cat <<-EOF
+	wgkey /etc/wireguard/$WG_IF.key
+	wgport $WG_PORT
+	wgpeer $peer_pubkey wgendpoint $peer_endpoint $WG_PORT wgaip $peer_aip
+	inet $addr/$WG_PREFIX
+	up
+	EOF
+	)
+
+	ssh "$host" "/bin/bash -c 'cat > /etc/hostname.$WG_IF'" <<< "$content"
+}
+
+echo "==> generating/collecting WireGuard keys"
+PUB1=$(ensure_key_and_get_pubkey "$SERVER1")
+PUB2=$(ensure_key_and_get_pubkey "$SERVER2")
+echo "    $ENDPOINT1 pubkey: $PUB1"
+echo "    $ENDPOINT2 pubkey: $PUB2"
+
+echo "==> writing /etc/hostname.$WG_IF on both servers"
+write_hostname_if "$SERVER1" "$WG_ADDR1" "$PUB2" "$ENDPOINT2" "$WG_ADDR2/32"
+write_hostname_if "$SERVER2" "$WG_ADDR2" "$PUB1" "$ENDPOINT1" "$WG_ADDR1/32"
+
+echo "==> bringing up $WG_IF on both servers"
+remote "$SERVER1" "sh /etc/netstart $WG_IF"
+remote "$SERVER2" "sh /etc/netstart $WG_IF"
+
+echo "==> verifying tunnel connectivity"
+if ssh "$SERVER1" "/bin/bash -c 'ping -c 2 -w 5 $WG_ADDR2'" >/dev/null 2>&1; then
+	echo "    OK: $ENDPOINT1 can reach $WG_ADDR2 over $WG_IF"
+else
+	echo "    FAILED: $ENDPOINT1 cannot reach $WG_ADDR2 over $WG_IF -- check firewall/pf rules for UDP $WG_PORT between the two servers" >&2
+	exit 1
+fi
