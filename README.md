@@ -26,9 +26,9 @@ as a different user). Example:
 
 1. On each server: installs `wireguard-tools` if missing (only needed for
    `wg genkey`/`wg pubkey` — OpenBSD's WireGuard interface itself is a
-   native kernel driver, no userland daemon required), generates a private
-   key at `/etc/wireguard/wg0.key` if one doesn't already exist, and reads
-   back its public key.
+   native kernel driver, no userland daemon required), reuses the private
+   key already embedded in `/etc/hostname.wg0` if one exists, otherwise
+   generates a fresh one, and reads back its public key.
 2. Backs up any existing `/etc/hostname.wg0` (`.bak.<timestamp>`), then
    writes a new one on each server referencing the *other* server's public
    key and endpoint address.
@@ -55,7 +55,7 @@ change):
 ## Requirements
 
 - Root ssh access to both servers (or a user with permission to write
-  `/etc/hostname.wg0`, `/etc/wireguard/`, and run `pkg_add`/`ifconfig`).
+  `/etc/hostname.wg0` and run `pkg_add`/`ifconfig`).
 - Outbound package-mirror access on both servers if `wireguard-tools` isn't
   already installed.
 - UDP port 51820 open between the two servers (firewall/pf rules on either

@@ -39,23 +39,25 @@ remote() {
 }
 
 # Install wireguard-tools if missing (needed for wg genkey/pubkey; the wg0
-# interface itself is native OpenBSD wg(4), no userland driver needed),
-# generate this host's private key once (kept at /etc/wireguard/$WG_IF.key
-# so re-runs are idempotent), and print it followed by its public key --
-# ifconfig's wgkey directive needs the literal key value, not a path, so
-# the caller must read the private key back out to embed it in hostname.if.
+# interface itself is native OpenBSD wg(4), no userland driver needed), and
+# print this host's private key followed by its public key. The private
+# key's only persistent home is the wgkey line in /etc/hostname.$WG_IF
+# (ifconfig's wgkey directive needs the literal key value, not a path) --
+# reused from there if it already exists so re-runs are idempotent,
+# otherwise generated fresh via genkey|pubkey with no key material ever
+# touching disk before it's embedded there.
 ensure_keys() {
 	local host="$1"
 	ssh "$host" "/bin/bash -s" <<-EOF
 	set -e
 	command -v wg >/dev/null 2>&1 || pkg_add -I wireguard-tools 1>&2
-	mkdir -p -m 700 /etc/wireguard
-	if [ ! -f /etc/wireguard/$WG_IF.key ]; then
-		umask 077
-		wg genkey > /etc/wireguard/$WG_IF.key
+	if [ -f /etc/hostname.$WG_IF ] && grep -q '^wgkey ' /etc/hostname.$WG_IF; then
+		priv=\$(awk '/^wgkey /{print \$2}' /etc/hostname.$WG_IF)
+	else
+		priv=\$(wg genkey)
 	fi
-	cat /etc/wireguard/$WG_IF.key
-	wg pubkey < /etc/wireguard/$WG_IF.key
+	echo "\$priv"
+	echo "\$priv" | wg pubkey
 	EOF
 }
 

@@ -16,10 +16,10 @@ executing it against two live (or sandboxed) hosts.
 ```
 
 Requires root ssh access to both servers (or pass `user@host` per
-argument). Safe to re-run: key generation is idempotent (an existing
-`/etc/wireguard/wg0.key` is reused, never regenerated), and any existing
-`/etc/hostname.wg0` is backed up (`.bak.<timestamp>`) before being
-overwritten.
+argument). Safe to re-run: key generation is idempotent (an existing key is
+read back out of `/etc/hostname.wg0`'s `wgkey` line and reused, never
+regenerated), and any existing `/etc/hostname.wg0` is backed up
+(`.bak.<timestamp>`) before being overwritten.
 
 Syntax-check only, since the target commands (`wg`, `pkg_add`,
 `/etc/netstart`) don't exist on a non-OpenBSD dev machine:
@@ -54,13 +54,14 @@ that package being present afterward.
 
 `wgkey` takes the literal base64 private key value, not a file path --
 passing a path fails with `ifconfig: wgkey (key): invalid length` (ifconfig
-tries to base64-decode the path string itself). The script keeps the
-private key at `/etc/wireguard/wg0.key` on each host as the idempotency
-source of truth (so re-runs don't regenerate it), but reads its content
-back out to embed directly in `/etc/hostname.wg0`, which is why
-`write_hostname_if` takes the private key as an argument rather than just
-a path. `/etc/hostname.wg0` is chmod 600 after writing since it now holds
-a secret.
+tries to base64-decode the path string itself). Because of that, the key's
+only persistent home is the `wgkey` line inside `/etc/hostname.wg0` itself
+-- there's no separate `/etc/wireguard/` key file. `ensure_keys` checks for
+an existing `wgkey` line there first and reuses it; only if there isn't one
+yet does it generate a fresh keypair via `wg genkey | wg pubkey`, entirely
+in memory/pipes with no key material ever written to a file (temporary or
+otherwise) before it lands in `/etc/hostname.wg0`. `/etc/hostname.wg0` is
+chmod 600 after writing since it holds a secret.
 
 ### Every remote command forces /bin/bash explicitly
 
