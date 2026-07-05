@@ -52,6 +52,16 @@ package is installed on each server *only* to get the `wg genkey`/`wg
 pubkey` commands for key generation; the tunnel itself never depends on
 that package being present afterward.
 
+`wgkey` takes the literal base64 private key value, not a file path --
+passing a path fails with `ifconfig: wgkey (key): invalid length` (ifconfig
+tries to base64-decode the path string itself). The script keeps the
+private key at `/etc/wireguard/wg0.key` on each host as the idempotency
+source of truth (so re-runs don't regenerate it), but reads its content
+back out to embed directly in `/etc/hostname.wg0`, which is why
+`write_hostname_if` takes the private key as an argument rather than just
+a path. `/etc/hostname.wg0` is chmod 600 after writing since it now holds
+a secret.
+
 ### Every remote command forces /bin/bash explicitly
 
 OpenBSD's root account defaults to `ksh`, not bash. Every `ssh` invocation
