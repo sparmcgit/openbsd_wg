@@ -1,6 +1,6 @@
 # openbsd_wg
 
-Sets up a point-to-point WireGuard tunnel between two OpenBSD 7.9 servers,
+Sets up a point-to-point WireGuard tunnel between two OpenBSD servers,
 one `wg0` interface on each end, persisted across reboots via
 `/etc/hostname.wg0`.
 

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repository is
 
 A single SSH-orchestrated shell script, `openbsd_wg`, that sets up a
-point-to-point WireGuard tunnel between two OpenBSD 7.9 servers. There is
+point-to-point WireGuard tunnel between two OpenBSD servers. There is
 no build/test/lint tooling — it's a standalone bash script, "run" by
 executing it against two live (or sandboxed) hosts.
 

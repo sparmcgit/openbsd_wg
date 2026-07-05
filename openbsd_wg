@@ -1,5 +1,5 @@
 #!/bin/bash
-# Set up a point-to-point WireGuard tunnel between two OpenBSD 7.9 servers,
+# Set up a point-to-point WireGuard tunnel between two OpenBSD servers,
 # one wg0 interface on each end, persisted via /etc/hostname.wg0.
 #
 # Usage:
@@ -17,7 +17,7 @@ usage() {
 	cat <<-EOF
 	usage: openbsd_wg [user@]<server1> [user@]<server2>
 
-	Sets up a point-to-point WireGuard tunnel between two OpenBSD 7.9
+	Sets up a point-to-point WireGuard tunnel between two OpenBSD
 	servers: $WG_IF on server1 gets $WG_ADDR1/$WG_PREFIX, $WG_IF on server2
 	gets $WG_ADDR2/$WG_PREFIX, peered to each other over UDP port $WG_PORT.
 	Requires root ssh access to both servers (or pass user@host).
