@@ -18,8 +18,10 @@ executing it against two live (or sandboxed) hosts.
 Requires root ssh access to both servers (or pass `user@host` per
 argument). Safe to re-run: key generation is idempotent (an existing key is
 read back out of `/etc/hostname.wg0`'s `wgkey` line and reused, never
-regenerated), and any existing `/etc/hostname.wg0` is backed up
-(`.bak.<timestamp>`) before being overwritten.
+regenerated), the shared preshared key is likewise read back out of the
+`wgpsk` field on either server's `wgpeer` line and reused if present, and
+any existing `/etc/hostname.wg0` is backed up (`.bak.<timestamp>`) before
+being overwritten.
 
 Syntax-check only, since the target commands (`wg`, `pkg_add`,
 `/etc/netstart`) don't exist on a non-OpenBSD dev machine:
@@ -62,6 +64,13 @@ yet does it generate a fresh keypair via `wg genkey | wg pubkey`, entirely
 in memory/pipes with no key material ever written to a file (temporary or
 otherwise) before it lands in `/etc/hostname.wg0`. `/etc/hostname.wg0` is
 chmod 600 after writing since it holds a secret.
+
+The tunnel also uses a preshared key (`wgpsk`, appended to the `wgpeer`
+line) for post-quantum-resistant symmetric key mixing on top of Curve25519
+-- unlike the per-host private keys, this one value must be identical on
+both servers. `ensure_psk` checks both servers' existing `/etc/hostname.wg0`
+for a `wgpsk` field first (so re-runs stay idempotent) and only generates a
+fresh one via `wg genpsk` on server1 if neither has one yet.
 
 ### Every remote command forces /bin/bash explicitly
 

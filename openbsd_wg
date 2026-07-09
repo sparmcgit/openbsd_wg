@@ -61,9 +61,33 @@ ensure_keys() {
 	EOF
 }
 
+# Print the wgpsk value from a host's existing wgpeer line in
+# /etc/hostname.$WG_IF, if any; prints nothing if there's no file or no
+# wgpsk field yet.
+read_psk() {
+	local host="$1"
+	ssh "$host" "/bin/bash -s" <<-EOF
+	awk '/^wgpeer /{for(i=1;i<=NF;i++) if (\$i=="wgpsk") print \$(i+1)}' /etc/hostname.$WG_IF 2>/dev/null || true
+	EOF
+}
+
+# Generate (or reuse) the single preshared key shared by both peers. Reused
+# from either host's existing wgpeer wgpsk field first, so re-runs are
+# idempotent; only generated fresh via `wg genpsk` on server1 if neither
+# host has one yet. By the time this runs, ensure_keys has already made
+# sure wireguard-tools (and thus wg genpsk) is installed on server1.
+ensure_psk() {
+	local host1="$1" host2="$2"
+	local psk
+	psk="$(read_psk "$host1")"
+	[ -n "$psk" ] || psk="$(read_psk "$host2")"
+	[ -n "$psk" ] || psk="$(ssh "$host1" "/bin/bash -c 'wg genpsk'")"
+	echo "$psk"
+}
+
 # Write /etc/hostname.$WG_IF on a host, backing up any existing one first.
 write_hostname_if() {
-	local host="$1" addr="$2" own_privkey="$3" peer_pubkey="$4" peer_endpoint="$5" peer_aip="$6"
+	local host="$1" addr="$2" own_privkey="$3" peer_pubkey="$4" peer_endpoint="$5" peer_aip="$6" psk="$7"
 
 	ssh "$host" "/bin/bash -s" <<-EOF
 	set -e
@@ -76,7 +100,7 @@ write_hostname_if() {
 	content=$(cat <<-EOF
 	wgkey $own_privkey
 	wgport $WG_PORT
-	wgpeer $peer_pubkey wgendpoint $peer_endpoint $WG_PORT wgaip $peer_aip
+	wgpeer $peer_pubkey wgendpoint $peer_endpoint $WG_PORT wgpsk $psk wgaip $peer_aip
 	inet $addr/$WG_PREFIX
 	up
 	EOF
@@ -91,9 +115,12 @@ echo "==> generating/collecting WireGuard keys"
 echo "    $ENDPOINT1 pubkey: $PUB1"
 echo "    $ENDPOINT2 pubkey: $PUB2"
 
+echo "==> generating/collecting preshared key"
+PSK=$(ensure_psk "$SERVER1" "$SERVER2")
+
 echo "==> writing /etc/hostname.$WG_IF on both servers"
-write_hostname_if "$SERVER1" "$WG_ADDR1" "$PRIV1" "$PUB2" "$ENDPOINT2" "$WG_ADDR2/32"
-write_hostname_if "$SERVER2" "$WG_ADDR2" "$PRIV2" "$PUB1" "$ENDPOINT1" "$WG_ADDR1/32"
+write_hostname_if "$SERVER1" "$WG_ADDR1" "$PRIV1" "$PUB2" "$ENDPOINT2" "$WG_ADDR2/32" "$PSK"
+write_hostname_if "$SERVER2" "$WG_ADDR2" "$PRIV2" "$PUB1" "$ENDPOINT1" "$WG_ADDR1/32" "$PSK"
 
 echo "==> bringing up $WG_IF on both servers"
 remote "$SERVER1" "sh /etc/netstart $WG_IF"
